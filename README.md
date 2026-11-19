@@ -41,6 +41,6 @@ python run_tests.py      # или: python -m pytest
 
 | Участник | Часть | Ветка |
 |---|---|---|
-| ФИО 1 | Глава I, раунды 1–2 | `feature/chapter-1` |
-| ФИО 2 | Глава II, раунды 3–4 | `feature/chapter-2` |
-| ФИО 3 | Глава III, раунды 5–6, финал | `feature/chapter-3` |
+| Колядина | Глава I, раунды 1–2 | `feature/chapter-1` |
+| Спирина | Глава II, раунды 3–4 | `feature/chapter-2` |
+| Максимова | Глава III, раунды 5–6, финал | `feature/chapter-3` |

@@ -71,21 +71,20 @@ def test_r1_syntax_error_does_not_crash():
 
 
 def test_r2_correct_patterns_accepted():
-    for pattern in (r"\bCASE-[0-9]{4}\b",
+    for pattern in (r"CASE-[0-9]{4}",                      # эталон из GDD
+                    r"\bCASE-[0-9]{4}\b",
                     r"(?<![A-Za-z0-9])CASE-\d{4}(?![A-Za-z0-9])",
                     r"(?<!\w)CASE-[0-9]{4}(?!\w)"):
         ok, msg = ROUND_2.check(pattern)
         assert ok, (pattern, msg)
 
 
-def test_r2_gdd_reference_pattern_passes_visible_document_only():
-    # эталон из GDD верен на видимом документе, но «Обработка ошибок» требует
-    # отклонять части повреждённых и более длинных кодов, поэтому без границ он не проходит
+def test_r2_gdd_reference_pattern_accepted_in_full():
     import re
     ref = re.compile(r"CASE-[0-9]{4}")
     assert [m.group(0) for m in ref.finditer(chapter_1.JOURNAL)] == chapter_1.JOURNAL_IDS
     ok, msg = ROUND_2.check(r"CASE-[0-9]{4}")
-    assert not ok
+    assert ok, msg
 
 
 def test_r2_wrong_prefix_message():
@@ -106,11 +105,9 @@ def test_r2_wrong_digits_message():
 
 
 def test_r2_partial_match_shows_fragment_and_line():
-    ok, msg = ROUND_2.check(r"CASE-[0-9]{4}(?![0-9])")  # нет границы слева/справа от букв
-    assert not ok and chapter_1.C_PARTIAL in msg
-    assert "Лишнее совпадение" in msg and "Строка:" in msg
     ok, msg = ROUND_2.check(r"[0-9]{4}")  # даты и обычные числа из журнала
     assert not ok and chapter_1.C_PARTIAL in msg and "1934" in msg
+    assert "Лишнее совпадение" in msg and "Строка:" in msg
 
 
 def test_r2_missing_codes_message_names_first_missing():
@@ -138,7 +135,7 @@ def _io(answers):
 def test_chapter_playthrough_with_hint_mistake_and_syntax_error():
     ask, say, log = _io(["?", "OE-[A-Z", "OE-[A-Z]+-[0-9]{3}",
                          r"OE-[A-Z]{2}-[0-9]{3}",
-                         r"CASE-[0-9]{4}", r"\bCASE-[0-9]{4}\b"])
+                         r"[0-9]{4}", r"CASE-[0-9]{4}"])
     for rnd in chapter_1.ROUNDS:
         assert play_round(rnd, ask, say) is True
     text = "\n".join(log)

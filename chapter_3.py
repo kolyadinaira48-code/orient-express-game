@@ -401,7 +401,7 @@ if __name__ == "__main__":
     ask = input
     journal = []
     for rnd in ROUNDS:
-        rnd.intro()
+        say(rnd.intro())  # ← ИСПРАВЛЕНО: теперь выводим описание раунда
         while True:
             ok, msg = rnd.check(ask("Введите регулярное выражение: "))
             say(msg)

@@ -43,19 +43,49 @@ class BaggageRound(Round):
         self.valid_tags = valid_tags
         self.invalid_tags = invalid_tags
 
-    def evaluate(self, compiled):
-        # 1) все правильные бирки должны проходить
-        for tag in self.valid_tags:
-            if not compiled.fullmatch(tag):
-                return False, (
-                    f"Ваш шаблон не распознал правильную багажную бирку: {tag}. "
-                    "Проверьте структуру регулярного выражения."
-                )
-        # 2) ни одна неправильная бирка не должна проходить
+    def evaluate(self, compiled): # 1) Сначала проверяем неправильные бирки
         for tag, error_type in self.invalid_tags:
             if compiled.fullmatch(tag):
                 return False, self._error_message(tag, error_type)
+        
+        # 2) Потом проверяем правильные бирки
+        for tag in self.valid_tags:
+            if not compiled.fullmatch(tag):
+                return False, self._diagnose_valid_tag(tag, compiled)
+        
         return True, "Все багажные бирки проверены правильно!"
+
+    def _diagnose_valid_tag(self, tag, compiled):
+        """Анализирует, почему шаблон не принимает правильную бирку."""
+        # Проверяем префикс
+        if not compiled.fullmatch("BAG-" + tag[4:]):
+            return (
+                f"Ваш шаблон не распознал правильную бирку {tag}. "
+                "Проверьте префикс: бирка должна начинаться с BAG-."
+            )
+        
+        # Проверяем среднюю часть (две заглавные буквы)
+        test_tag = tag[:4] + "XX-" + tag[7:]
+        if not compiled.fullmatch(test_tag):
+            return (
+                f"Ваш шаблон не распознал правильную бирку {tag}. "
+                "Проверьте среднюю часть: должны быть ровно две заглавные английские буквы."
+            )
+        
+        # Проверяем цифры (три цифры)
+        test_tag = tag[:7] + "000"
+        if not compiled.fullmatch(test_tag):
+            return (
+                f"Ваш шаблон не распознал правильную бирку {tag}. "
+                "Проверьте количество цифр: должно быть ровно три цифры от 0 до 9."
+            )
+        
+        # Если ничего не помогло, общее сообщение
+        return (
+            f"Ваш шаблон не распознал правильную бирку {tag}. "
+            "Проверьте формат: BAG-XX-000, где XX — две заглавные буквы, 000 — три цифры."
+        )
+
 
     def _error_message(self, tag, error_type):
         head = f"Ваш шаблон принял неправильную бирку {tag}."
@@ -163,23 +193,116 @@ class RedactionRound(Round):
             got = compiled.sub(lambda m: self.replacement, document)
             expected = self.reference.sub(lambda m: self.replacement, document)
             if got != expected:
-                return False, self._diagnose(document, got)
+                return False, self._diagnose(document, got, compiled)
         return True, "Все действующие коды успешно скрыты!"
 
-    def _diagnose(self, document, got):
+    def _diagnose(self, document, got, compiled):
+        # 1. Повреждённый фрагмент
         if self.damaged not in got:
             return (
                 f"Ваш шаблон изменил повреждённый фрагмент {self.damaged}. "
                 "Необходимо скрывать только полные действующие "
                 "регистрационные коды и багажные бирки."
-            )
-        for code in self.reference.findall(document):
-            if code in got:
-                return (
-                    f"Код {code} остался в документе. "
-                    "Проверьте, что шаблон находит все идентификаторы "
-                    "форматов CASE-0000 и BAG-XX-000."
                 )
+
+        expected_codes = self.reference.findall(document)
+        user_found = compiled.findall(document)
+        pattern_source = compiled.pattern
+
+        missed_codes = [c for c in expected_codes if c not in user_found]
+        if not missed_codes:
+            return (
+                "Результат замены отличается от ожидаемого. "
+                "Проверьте, что скрываются только полные действующие коды, "
+                "а остальной текст остаётся без изменений."
+            )
+
+        wants_bag = "BAG" in pattern_source
+        wants_case = "CASE" in pattern_source
+
+        missed_bag = [c for c in missed_codes if c.startswith("BAG-")]
+        missed_case = [c for c in missed_codes if c.startswith("CASE-")]
+
+        # Частичное совпадение: нашли префикс вместо целого кода
+        partial = None
+        for code in missed_codes:
+            for uf in user_found:
+                if uf != code and code.startswith(uf):
+                    partial = (code, uf)
+                    break
+            if partial:
+                break
+
+        # 2. Шаблон вообще не про нужные форматы
+        if not wants_bag and not wants_case:
+            return (
+                "Ваш шаблон не ищет ни один из нужных форматов. "
+                "Нужно скрывать два вида кодов: CASE-XXXX (четыре цифры) "
+                "и BAG-XX-000 (две заглавные буквы и три цифры). "
+                "Используйте альтернативу | для объединения."
+            )
+
+        # 3. Нашли часть кода вместо целого
+        if partial:
+            code, uf = partial
+            if code.startswith("CASE-"):
+                return (
+                    f"Ваш шаблон нашёл только часть кода: {uf} вместо {code}. "
+                    "Проверьте количество цифр: у CASE их ровно четыре."
+                )
+            return (
+                f"Ваш шаблон нашёл только часть кода: {uf} вместо {code}. "
+                "Проверьте формат BAG: XX — две заглавные буквы, 000 — три цифры."
+            )
+
+        # 4. Фокус на BAG (ищешь BAG, но не CASE)
+        if wants_bag and not wants_case:
+            if missed_bag:
+                return (
+                    f"Код {missed_bag[0]} остался в документе. "
+                    "Проверьте формат BAG: должно быть BAG-XX-000, "
+                    "где XX — ровно две заглавные английские буквы, 000 — ровно три цифры."
+                )
+            return (
+                "Вы забыли формат CASE. "
+                f"Код {missed_case[0]} остался в документе. "
+                "Добавьте в шаблон поиск CASE-XXXX (четыре цифры) "
+                "и объедините с BAG через |."
+            )
+
+        # 5. Фокус на CASE (ищешь CASE, но не BAG)
+        if wants_case and not wants_bag:
+            if missed_case:
+                return (
+                    f"Код {missed_case[0]} остался в документе. "
+                    "Проверьте формат CASE: должно быть CASE-XXXX, "
+                    "где XXXX — ровно четыре цифры."
+                )
+            return (
+                "Вы забыли формат BAG. "
+                f"Код {missed_bag[0]} остался в документе. "
+                "Добавьте в шаблон поиск BAG-XX-000 (две заглавные буквы и три цифры) "
+                "и объедините с CASE через |."
+            )
+
+        # 6. Ищешь оба формата, но есть пропуски
+        if missed_bag and missed_case:
+            return (
+                f"Коды {missed_case[0]} и {missed_bag[0]} остались в документе. "
+                "Проверьте оба формата: CASE-XXXX (четыре цифры) "
+                "и BAG-XX-000 (две заглавные буквы и три цифры)."
+            )
+        if missed_bag:
+            return (
+                f"Код {missed_bag[0]} остался в документе. "
+                "Проверьте формат BAG: XX — две заглавные буквы, 000 — три цифры."
+            )
+        if missed_case:
+            return (
+                f"Код {missed_case[0]} остался в документе. "
+                "Проверьте формат CASE: XXXX — четыре цифры."
+            )
+
         return (
             "Результат замены отличается от ожидаемого. "
             "Проверьте, что скрываются только полные действующие коды, "

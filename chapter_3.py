@@ -245,7 +245,7 @@ def finale(ask, say, journal):
         while True:
             say("\nКто убил Адриана Рида? Введите номер:")
             for i, person in enumerate(suspects, 1):
-                say(f"{i}. {person.name}")
+                say(f"{i}. {person.name_ru}")
             say("0. Показать журнал улик")
             raw = ask("> ")
             try:
